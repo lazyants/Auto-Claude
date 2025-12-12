@@ -1,100 +1,66 @@
 # QA Validation Report
 
 **Spec**: 003-bug-on-manual-tasks
-**Date**: 2025-12-12T14:00:00Z
-**QA Agent Session**: 2
+**Date**: 2025-12-12T14:30:00Z
+**QA Agent Session**: 1
 
 ## Summary
 
 | Category | Status | Details |
 |----------|--------|---------|
-| Chunks Complete | PASS | 2/2 chunks completed |
-| Code Changes Verified | PASS | Both files correctly modified per spec |
-| Pattern Compliance | PASS | Changes follow existing patterns |
-| Security Review | PASS | No security issues |
-| Type Safety | PASS | Uses existing TaskMetadata type correctly |
+| Chunks Complete | ✓ | 2/2 completed |
+| Code Review | ✓ | Changes match spec requirements |
+| TypeScript Analysis | ✓ | Types are correctly used |
+| Logic Verification | ✓ | Manual tasks → human_review, Ideation → ai_review |
+| Security Review | ✓ | No security issues found |
+| Pattern Compliance | ✓ | Follows existing patterns |
 
 ## Verification Details
 
-### Chunk 1-1: Update determineTaskStatus in main/project-store.ts
+### Chunk 1-1: Update determineTaskStatus in project-store.ts
 
-**Status**: VERIFIED COMPLETE
+**Status**: PASSED ✓
 
-Git diff shows all required changes:
+**Changes Verified**:
+1. Added `metadata?: TaskMetadata` parameter to `determineTaskStatus()` function (line 256)
+2. Updated call site (line 216) to pass `metadata` parameter
+3. Added conditional logic at line 311: `return metadata?.sourceType === 'manual' ? 'human_review' : 'ai_review';`
 
-1. **Function signature updated** (line 253-256):
-   ```typescript
-   private determineTaskStatus(
-     plan: ImplementationPlan | null,
-     specPath: string,
-     metadata?: TaskMetadata  // ADDED
-   ): TaskStatus {
-   ```
-
-2. **Call site updated** (line 216):
-   ```typescript
-   const status = this.determineTaskStatus(plan, specPath, metadata);  // metadata passed
-   ```
-
-3. **Return logic updated** (lines 309-311):
-   ```typescript
-   if (completed === allChunks.length) {
-     // Manual tasks skip AI review and go directly to human review
-     return metadata?.sourceType === 'manual' ? 'human_review' : 'ai_review';
-   }
-   ```
+**Code Analysis**:
+- Optional chaining (`?.`) correctly handles undefined metadata
+- Ternary returns `'human_review'` for manual tasks, `'ai_review'` for all others
+- Type-safe: `TaskMetadata.sourceType` is `'ideation' | 'manual' | 'imported' | 'insights' | undefined`
 
 ### Chunk 1-2: Update updateTaskFromPlan in task-store.ts
 
-**Status**: VERIFIED COMPLETE
+**Status**: PASSED ✓
 
-Git diff shows required change at lines 80-82:
+**Changes Verified**:
+1. Updated line 82 in `updateTaskFromPlan()` function
+2. Added conditional logic: `status = t.metadata?.sourceType === 'manual' ? 'human_review' : 'ai_review';`
 
-```typescript
-if (allCompleted) {
-  // Manual tasks skip AI review and go directly to human review
-  status = t.metadata?.sourceType === 'manual' ? 'human_review' : 'ai_review';
-}
-```
+**Code Analysis**:
+- Uses `t.metadata?.sourceType` with optional chaining
+- Same logic pattern as project-store.ts for consistency
+- Correctly handles the case when metadata is undefined
 
-## Code Review
+### Source Type Flow Verification
 
-### Correctness Analysis
+Traced the `sourceType` through the codebase:
 
-1. **Manual Task Flow**: When a task has `metadata.sourceType === 'manual'`:
-   - TaskCreationWizard sets `sourceType: 'manual'`
-   - ipc-handlers.ts creates task with `sourceType: 'manual'`
-   - When all chunks complete, both `determineTaskStatus` (main process) and `updateTaskFromPlan` (renderer) now return `'human_review'`
+1. **TaskCreationWizard.tsx** (line 72): Sets `sourceType: 'manual'` for wizard-created tasks
+2. **ipc-handlers.ts** (line 365): Defaults to `sourceType: 'manual'` for IPC-created tasks
+3. **ipc-handlers.ts** (line 4068): Sets `sourceType: 'ideation'` for ideation-converted tasks
 
-2. **Ideation Task Flow**: When a task has `metadata.sourceType === 'ideation'`:
-   - Ideation conversion sets `sourceType: 'ideation'`
-   - The check `=== 'manual'` will be FALSE
-   - Both functions will return `'ai_review'` as expected
+**Result**: Manual tasks correctly identified, ideation tasks correctly identified.
 
-3. **Edge Cases**:
-   - If `metadata` is undefined: Returns `'ai_review'` (safe fallback)
-   - If `sourceType` is missing: Returns `'ai_review'` (safe fallback)
-   - If `sourceType` is 'imported' or 'insights': Returns `'ai_review'` (expected behavior)
+### Acceptance Criteria Check
 
-### Type Safety
-
-- `TaskMetadata` interface already defines `sourceType?: 'ideation' | 'manual' | 'imported' | 'insights'`
-- The type is already imported in both modified files
-- Optional chaining (`?.`) used correctly for null safety
-
-### Pattern Compliance
-
-- Comment style matches existing codebase
-- Ternary operator pattern matches other status logic in both files
-- No new dependencies introduced
-
-## Verification Against Success Criteria
-
-| Criterion | Status | Evidence |
-|-----------|--------|----------|
-| Manual tasks go to human_review when all chunks completed | PASS | Both files now check `sourceType === 'manual'` |
-| Ideation-sourced tasks still go to ai_review when completed | PASS | Condition only matches 'manual', not 'ideation' |
-| No TypeScript compilation errors | PASS | Uses existing types correctly with proper optional chaining |
+| Criteria | Status |
+|----------|--------|
+| Manual tasks go to human_review when all chunks completed | ✓ PASS |
+| Ideation/imported tasks still go to ai_review when completed | ✓ PASS |
+| No TypeScript compilation errors | ✓ PASS (static analysis) |
 
 ## Issues Found
 
@@ -107,23 +73,26 @@ None
 ### Minor (Nice to Fix)
 None
 
-## Commit History
+## Security Review
 
-The fix was correctly applied in commit `951e428`:
-```
-fix: Update determineTaskStatus in main/project-store.ts for manual tasks (qa-requested)
-```
+Checked for common vulnerabilities in modified files:
+- No `eval()` usage
+- No `innerHTML` or `dangerouslySetInnerHTML`
+- No hardcoded secrets
+- No shell injection risks
+
+**Result**: No security issues found.
 
 ## Verdict
 
-**SIGN-OFF**: APPROVED
+**SIGN-OFF**: APPROVED ✓
 
-**Reason**: All acceptance criteria verified. Both locations (`main/project-store.ts` and `renderer/stores/task-store.ts`) now correctly handle manual task status transitions:
-- Manual tasks (`sourceType: 'manual'`) will transition to `human_review` when all chunks are completed
-- Ideation and other task types will continue to transition to `ai_review` as before
+**Reason**: All acceptance criteria verified. The implementation correctly:
+1. Adds the `metadata` parameter to `determineTaskStatus()`
+2. Passes metadata through at the call site
+3. Returns `'human_review'` for manual tasks when all chunks are completed
+4. Maintains existing behavior for ideation/imported tasks (still go to `'ai_review'`)
 
-The implementation follows the spec exactly and uses existing type definitions correctly.
+The code is clean, follows existing patterns, and handles edge cases (undefined metadata) correctly.
 
-**Next Steps**:
-- Ready for merge to main branch
-- The fix addresses the bug where manual tasks incorrectly went to `ai_review` instead of `human_review`
+**Next Steps**: Ready for merge to main.
