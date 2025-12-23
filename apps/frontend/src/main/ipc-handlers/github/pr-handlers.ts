@@ -231,12 +231,20 @@ async function runPRReview(
 
     const pythonPath = path.join(backendPath, '.venv', 'bin', 'python');
 
-    const child = spawn(pythonPath, [
+    const args = [
       runnerPath,
       '--project', project.path,
       'review-pr',
       prNumber.toString(),
-    ], {
+    ];
+
+    debugLog('Spawning PR review process', {
+      pythonPath,
+      args,
+      cwd: backendPath,
+    });
+
+    const child = spawn(pythonPath, args, {
       cwd: backendPath,
       env: {
         ...process.env,
@@ -244,16 +252,21 @@ async function runPRReview(
       },
     });
 
+    debugLog('Process spawned', { pid: child.pid });
+
     let stdout = '';
     let stderr = '';
 
     child.stdout.on('data', (data: Buffer) => {
-      stdout += data.toString();
+      const text = data.toString();
+      stdout += text;
+      debugLog('STDOUT:', text.trim());
       // Parse progress updates
-      const lines = data.toString().split('\n');
+      const lines = text.split('\n');
       for (const line of lines) {
         const match = line.match(/\[(\d+)%\]\s*(.+)/);
         if (match) {
+          debugLog('Progress update detected', { percent: match[1], message: match[2] });
           sendProgress(mainWindow, project.id, {
             phase: 'analyzing',
             prNumber,
@@ -265,24 +278,31 @@ async function runPRReview(
     });
 
     child.stderr.on('data', (data: Buffer) => {
-      stderr += data.toString();
+      const text = data.toString();
+      stderr += text;
+      debugLog('STDERR:', text.trim());
     });
 
     child.on('close', (code: number) => {
+      debugLog('Process exited', { code, stdoutLength: stdout.length, stderrLength: stderr.length });
       if (code === 0) {
         // Try to load the result from disk
         const result = getReviewResult(project, prNumber);
         if (result) {
+          debugLog('Review result loaded successfully', { findingsCount: result.findings.length });
           resolve(result);
         } else {
+          debugLog('Review result not found on disk');
           reject(new Error('Review completed but result not found'));
         }
       } else {
+        debugLog('Process failed', { code, stderr: stderr.substring(0, 500) });
         reject(new Error(stderr || `Review failed with code ${code}`));
       }
     });
 
     child.on('error', (err: Error) => {
+      debugLog('Process error', { error: err.message });
       reject(err);
     });
   });

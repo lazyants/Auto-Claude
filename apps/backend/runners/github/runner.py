@@ -63,7 +63,7 @@ def print_progress(callback: ProgressCallback) -> None:
     elif callback.issue_number:
         prefix = f"[Issue #{callback.issue_number}] "
 
-    print(f"{prefix}[{callback.progress:3d}%] {callback.message}")
+    print(f"{prefix}[{callback.progress:3d}%] {callback.message}", flush=True)
 
 
 def get_config(args) -> GitHubRunnerConfig:
@@ -119,14 +119,30 @@ def get_config(args) -> GitHubRunnerConfig:
 
 async def cmd_review_pr(args) -> int:
     """Review a pull request."""
+    import sys
+
+    # Force unbuffered output so Electron sees it in real-time
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+
+    print(f"[DEBUG] Starting PR review for PR #{args.pr_number}", flush=True)
+    print(f"[DEBUG] Project directory: {args.project}", flush=True)
+
+    print("[DEBUG] Building config...", flush=True)
     config = get_config(args)
+    print(f"[DEBUG] Config built: repo={config.repo}, model={config.model}", flush=True)
+
+    print("[DEBUG] Creating orchestrator...", flush=True)
     orchestrator = GitHubOrchestrator(
         project_dir=args.project,
         config=config,
         progress_callback=print_progress,
     )
+    print("[DEBUG] Orchestrator created", flush=True)
 
+    print(f"[DEBUG] Calling orchestrator.review_pr({args.pr_number})...", flush=True)
     result = await orchestrator.review_pr(args.pr_number)
+    print(f"[DEBUG] review_pr returned, success={result.success}", flush=True)
 
     if result.success:
         print(f"\n{'=' * 60}")

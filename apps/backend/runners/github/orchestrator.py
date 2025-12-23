@@ -290,21 +290,41 @@ class GitHubOrchestrator:
         Returns:
             PRReviewResult with findings and overall assessment
         """
+        print(
+            f"[DEBUG orchestrator] review_pr() called for PR #{pr_number}", flush=True
+        )
+
         self._report_progress(
             "fetching", 10, f"Fetching PR #{pr_number}...", pr_number=pr_number
         )
 
         try:
             # Fetch PR data and diff
+            print("[DEBUG orchestrator] Fetching PR data...", flush=True)
             pr_data = await self._fetch_pr_data(pr_number)
+            print(
+                f"[DEBUG orchestrator] PR data fetched: {pr_data.get('title', 'untitled')}",
+                flush=True,
+            )
+
+            print("[DEBUG orchestrator] Fetching PR diff...", flush=True)
             pr_diff = await self._fetch_pr_diff(pr_number)
+            print(
+                f"[DEBUG orchestrator] PR diff fetched: {len(pr_diff)} chars",
+                flush=True,
+            )
 
             self._report_progress(
                 "analyzing", 30, "Analyzing code changes...", pr_number=pr_number
             )
 
             # Run AI review
+            print("[DEBUG orchestrator] Running AI review agent...", flush=True)
             findings = await self._run_pr_review_agent(pr_data, pr_diff)
+            print(
+                f"[DEBUG orchestrator] AI review complete: {len(findings)} findings",
+                flush=True,
+            )
 
             self._report_progress(
                 "generating", 70, "Generating review summary...", pr_number=pr_number
@@ -373,6 +393,8 @@ class GitHubOrchestrator:
         self, pr_data: dict, pr_diff: str
     ) -> list[PRReviewFinding]:
         """Run the AI agent to review PR code."""
+        print("[DEBUG agent] _run_pr_review_agent() starting...", flush=True)
+
         from core.client import create_client
 
         # Load prompt
@@ -384,8 +406,13 @@ class GitHubOrchestrator:
         )
         if not prompt_file.exists():
             # Use inline prompt if file doesn't exist yet
+            print(
+                f"[DEBUG agent] Using default prompt (file not found: {prompt_file})",
+                flush=True,
+            )
             prompt = self._get_default_pr_review_prompt()
         else:
+            print(f"[DEBUG agent] Loading prompt from {prompt_file}", flush=True)
             prompt = prompt_file.read_text()
 
         # Build context
@@ -410,35 +437,98 @@ class GitHubOrchestrator:
 """
 
         full_prompt = prompt + "\n\n---\n\n" + context
+        print(f"[DEBUG agent] Full prompt length: {len(full_prompt)} chars", flush=True)
 
         # Create client with appropriate tools
+        print(
+            f"[DEBUG agent] Creating Claude client (model={self.config.model})...",
+            flush=True,
+        )
         client = create_client(
             project_dir=self.project_dir,
             spec_dir=self.github_dir,
             model=self.config.model,
             agent_type="qa_reviewer",  # Similar tool permissions
         )
+        print(f"[DEBUG agent] Client created: {type(client).__name__}", flush=True)
 
         findings = []
 
         try:
+            print("[DEBUG agent] Entering async context manager...", flush=True)
             async with client:
+                print("[DEBUG agent] Sending query to Claude...", flush=True)
                 await client.query(full_prompt)
+                print("[DEBUG agent] Query sent, waiting for response...", flush=True)
 
                 response_text = ""
+                msg_count = 0
                 async for msg in client.receive_response():
+                    msg_count += 1
                     msg_type = type(msg).__name__
+                    print(f"\n[AI] === Message {msg_count}: {msg_type} ===", flush=True)
+
                     if msg_type == "AssistantMessage" and hasattr(msg, "content"):
-                        for block in msg.content:
+                        for i, block in enumerate(msg.content):
+                            block_type = type(block).__name__
                             if hasattr(block, "text"):
                                 response_text += block.text
+                                # Show first 500 chars of text
+                                preview = (
+                                    block.text[:500] + "..."
+                                    if len(block.text) > 500
+                                    else block.text
+                                )
+                                print(f"[AI] TextBlock {i}: {preview}", flush=True)
+                            elif hasattr(block, "name"):
+                                # Tool use block
+                                tool_name = getattr(block, "name", "unknown")
+                                tool_input = getattr(block, "input", {})
+                                print(f"[AI] ToolUse: {tool_name}", flush=True)
+                                # Print tool input (truncated if too long)
+                                input_str = str(tool_input)
+                                if len(input_str) > 300:
+                                    input_str = input_str[:300] + "..."
+                                print(f"[AI]   Input: {input_str}", flush=True)
+                            else:
+                                print(f"[AI] Block {i}: {block_type}", flush=True)
+
+                    elif msg_type == "UserMessage" and hasattr(msg, "content"):
+                        # Tool results come back as user messages
+                        for i, block in enumerate(msg.content):
+                            block_type = type(block).__name__
+                            if hasattr(block, "tool_use_id"):
+                                result_content = getattr(block, "content", "")
+                                if isinstance(result_content, str):
+                                    preview = (
+                                        result_content[:300] + "..."
+                                        if len(result_content) > 300
+                                        else result_content
+                                    )
+                                else:
+                                    preview = str(result_content)[:300]
+                                print(f"[AI] ToolResult: {preview}", flush=True)
+
+                print("\n[AI] === Response complete ===", flush=True)
+                print(
+                    f"[AI] Total: {len(response_text)} chars, {msg_count} messages",
+                    flush=True,
+                )
+                print(
+                    f"[AI] Full response text:\n{response_text[:2000]}{'...' if len(response_text) > 2000 else ''}",
+                    flush=True,
+                )
 
                 # Parse findings from response
                 findings = self._parse_review_findings(response_text)
+                print(f"[AI] Parsed {len(findings)} findings from response", flush=True)
 
         except Exception as e:
             # Return empty findings on error - main function will catch
-            print(f"PR review agent error: {e}")
+            import traceback
+
+            print(f"[DEBUG agent] PR review agent error: {e}", flush=True)
+            print(f"[DEBUG agent] Traceback: {traceback.format_exc()}", flush=True)
 
         return findings
 
