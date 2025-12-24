@@ -12,7 +12,7 @@ from pathlib import Path
 
 try:
     from ..models import AutoFixState, AutoFixStatus, GitHubRunnerConfig
-except ImportError:
+except (ImportError, ValueError, SystemError):
     from models import AutoFixState, AutoFixStatus, GitHubRunnerConfig
 
 

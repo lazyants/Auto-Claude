@@ -21,7 +21,7 @@ try:
     )
     from .prompt_manager import PromptManager
     from .response_parsers import ResponseParser
-except ImportError:
+except (ImportError, ValueError, SystemError):
     from context_gatherer import PRContext
     from models import (
         AICommentTriage,
@@ -509,9 +509,9 @@ class PRReviewEngine:
             lines.append(f"### Comment {i}: {comment.tool_name}")
             lines.append(f"- **Comment ID**: {comment.comment_id}")
             lines.append(f"- **Author**: {comment.author}")
-            lines.append(f"- **File**: {comment.file_path or 'General'}")
-            if comment.line_number:
-                lines.append(f"- **Line**: {comment.line_number}")
+            lines.append(f"- **File**: {comment.file or 'General'}")
+            if comment.line:
+                lines.append(f"- **Line**: {comment.line}")
             lines.append("")
             lines.append("**Comment:**")
             lines.append(comment.body)

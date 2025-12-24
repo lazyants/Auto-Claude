@@ -44,7 +44,7 @@ try:
         PRReviewEngine,
         TriageEngine,
     )
-except ImportError:
+except (ImportError, ValueError, SystemError):
     # When imported directly (runner.py adds github dir to path)
     from bot_detection import BotDetector
     from context_gatherer import PRContext, PRContextGatherer

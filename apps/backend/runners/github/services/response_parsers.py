@@ -21,7 +21,7 @@ try:
         TriageCategory,
         TriageResult,
     )
-except ImportError:
+except (ImportError, ValueError, SystemError):
     from models import (
         AICommentTriage,
         AICommentVerdict,

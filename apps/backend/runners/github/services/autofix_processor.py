@@ -13,7 +13,7 @@ from pathlib import Path
 try:
     from ..models import AutoFixState, AutoFixStatus, GitHubRunnerConfig
     from ..permissions import GitHubPermissionChecker
-except ImportError:
+except (ImportError, ValueError, SystemError):
     from models import AutoFixState, AutoFixStatus, GitHubRunnerConfig
     from permissions import GitHubPermissionChecker
 

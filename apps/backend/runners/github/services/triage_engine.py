@@ -13,7 +13,7 @@ try:
     from ..models import GitHubRunnerConfig, TriageCategory, TriageResult
     from .prompt_manager import PromptManager
     from .response_parsers import ResponseParser
-except ImportError:
+except (ImportError, ValueError, SystemError):
     from models import GitHubRunnerConfig, TriageCategory, TriageResult
     from services.prompt_manager import PromptManager
     from services.response_parsers import ResponseParser

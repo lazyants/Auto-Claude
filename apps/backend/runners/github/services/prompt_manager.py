@@ -11,7 +11,7 @@ from pathlib import Path
 
 try:
     from ..models import ReviewPass
-except ImportError:
+except (ImportError, ValueError, SystemError):
     from models import ReviewPass
 
 
