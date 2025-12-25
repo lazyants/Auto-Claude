@@ -4,6 +4,8 @@ import path from 'path';
 import { existsSync, readFileSync } from 'fs';
 import { spawn } from 'child_process';
 import { IPC_CHANNELS, getSpecsDir, AUTO_BUILD_PATHS } from '../../../shared/constants';
+import { parsePythonCommand, findPythonCommand } from '../../python-detector';
+import type { PythonEnvManager } from '../../python-env-manager';
 import type {
   IPCResult,
   ProjectContextData,
@@ -81,6 +83,7 @@ async function loadRecentMemories(
  * Register project context handlers
  */
 export function registerProjectContextHandlers(
+  pythonEnvManager: PythonEnvManager,
   _getMainWindow: () => BrowserWindow | null
 ): void {
   // Get full project context
@@ -157,26 +160,44 @@ export function registerProjectContextHandlers(
         const analyzerPath = path.join(autoBuildSource, 'analyzer.py');
         const indexOutputPath = path.join(project.path, AUTO_BUILD_PATHS.PROJECT_INDEX);
 
+        // Get managed Python path with fallbacks
+        const pythonPath = pythonEnvManager.getPythonPath() || findPythonCommand() || 'python';
+        const [pythonCommand, pythonBaseArgs] = parsePythonCommand(pythonPath);
+
         // Run analyzer
         await new Promise<void>((resolve, reject) => {
-          const proc = spawn('python', [
+          const proc = spawn(pythonCommand, [
+            ...pythonBaseArgs,  // Handle commands like "py -3"
             analyzerPath,
             '--project-dir', project.path,
             '--output', indexOutputPath
           ], {
             cwd: project.path,
-            env: { ...process.env }
+            env: {
+              ...process.env,
+              PYTHONUNBUFFERED: '1',      // Real-time output
+              PYTHONIOENCODING: 'utf-8',  // UTF-8 on Windows
+              PYTHONUTF8: '1'             // Force UTF-8 mode
+            }
+          });
+
+          // Collect stderr for better error messages
+          let stderr = '';
+          proc.stderr?.on('data', (data) => {
+            stderr += data.toString();
           });
 
           proc.on('close', (code: number) => {
             if (code === 0) {
               resolve();
             } else {
-              reject(new Error(`Analyzer exited with code ${code}`));
+              reject(new Error(`Analyzer exited with code ${code}${stderr ? ': ' + stderr : ''}`));
             }
           });
 
-          proc.on('error', reject);
+          proc.on('error', (err) => {
+            reject(new Error(`Failed to spawn Python: ${err.message}`));
+          });
         });
 
         // Read the new index
