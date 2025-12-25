@@ -87,10 +87,11 @@ export function GitHubPRs({ onOpenSettings }: GitHubPRsProps) {
     }
   }, [selectedPRNumber, cancelReview]);
 
-  const handlePostReview = useCallback((selectedFindingIds?: string[]) => {
+  const handlePostReview = useCallback(async (selectedFindingIds?: string[]): Promise<boolean> => {
     if (selectedPRNumber && reviewResult) {
-      postReview(selectedPRNumber, selectedFindingIds);
+      return await postReview(selectedPRNumber, selectedFindingIds);
     }
+    return false;
   }, [selectedPRNumber, reviewResult, postReview]);
 
   const handlePostComment = useCallback(async (body: string) => {

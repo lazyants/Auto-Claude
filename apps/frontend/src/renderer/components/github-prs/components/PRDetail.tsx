@@ -28,7 +28,7 @@ interface PRDetailProps {
   isReviewing: boolean;
   onRunReview: () => void;
   onCancelReview: () => void;
-  onPostReview: (selectedFindingIds?: string[]) => void;
+  onPostReview: (selectedFindingIds?: string[]) => Promise<boolean>;
   onPostComment: (body: string) => void;
   onMergePR: (mergeMethod?: 'merge' | 'squash' | 'rebase') => void;
   onAssignPR: (username: string) => void;
@@ -69,18 +69,29 @@ export function PRDetail({
 }: PRDetailProps) {
   // Selection state for findings
   const [selectedFindingIds, setSelectedFindingIds] = useState<Set<string>>(new Set());
+  const [postedFindingIds, setPostedFindingIds] = useState<Set<string>>(new Set());
+  const [isPostingFindings, setIsPostingFindings] = useState(false);
+  const [postSuccess, setPostSuccess] = useState<{ count: number; timestamp: number } | null>(null);
   const [isPosting, setIsPosting] = useState(false);
   const [isMerging, setIsMerging] = useState(false);
 
-  // Auto-select critical and high findings when review completes
+  // Auto-select critical and high findings when review completes (excluding already posted)
   useEffect(() => {
     if (reviewResult?.success && reviewResult.findings.length > 0) {
       const importantFindings = reviewResult.findings
-        .filter(f => f.severity === 'critical' || f.severity === 'high')
+        .filter(f => (f.severity === 'critical' || f.severity === 'high') && !postedFindingIds.has(f.id))
         .map(f => f.id);
       setSelectedFindingIds(new Set(importantFindings));
     }
-  }, [reviewResult]);
+  }, [reviewResult, postedFindingIds]);
+
+  // Clear success message after 3 seconds
+  useEffect(() => {
+    if (postSuccess) {
+      const timer = setTimeout(() => setPostSuccess(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [postSuccess]);
 
   // Count selected findings by type for the button label
   const selectedCount = selectedFindingIds.size;
@@ -98,8 +109,24 @@ export function PRDetail({
     return reviewResult.summary?.includes('READY TO MERGE') || reviewResult.overallStatus === 'approve';
   }, [reviewResult]);
 
-  const handlePostReview = () => {
-    onPostReview(Array.from(selectedFindingIds));
+  const handlePostReview = async () => {
+    const idsToPost = Array.from(selectedFindingIds);
+    if (idsToPost.length === 0) return;
+
+    setIsPostingFindings(true);
+    try {
+      const success = await onPostReview(idsToPost);
+      if (success) {
+        // Mark these findings as posted
+        setPostedFindingIds(prev => new Set([...prev, ...idsToPost]));
+        // Clear selection
+        setSelectedFindingIds(new Set());
+        // Show success message
+        setPostSuccess({ count: idsToPost.length, timestamp: Date.now() });
+      }
+    } finally {
+      setIsPostingFindings(false);
+    }
   };
 
   const handleApprove = async () => {
@@ -205,10 +232,26 @@ export function PRDetail({
               </Button>
             )}
             {reviewResult && reviewResult.success && selectedCount > 0 && !isReviewing && (
-              <Button onClick={handlePostReview} variant="secondary">
-                <Send className="h-4 w-4 mr-2" />
-                Post {selectedCount} Finding{selectedCount !== 1 ? 's' : ''}
+              <Button onClick={handlePostReview} variant="secondary" disabled={isPostingFindings}>
+                {isPostingFindings ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Posting...
+                  </>
+                ) : (
+                  <>
+                    <Send className="h-4 w-4 mr-2" />
+                    Post {selectedCount} Finding{selectedCount !== 1 ? 's' : ''}
+                  </>
+                )}
               </Button>
+            )}
+            {/* Success message */}
+            {postSuccess && (
+              <div className="flex items-center gap-2 text-success text-sm">
+                <CheckCircle className="h-4 w-4" />
+                Posted {postSuccess.count} finding{postSuccess.count !== 1 ? 's' : ''} to GitHub
+              </div>
             )}
           </div>
 
@@ -293,6 +336,7 @@ export function PRDetail({
               <ReviewFindings
                 findings={reviewResult.findings}
                 selectedIds={selectedFindingIds}
+                postedIds={postedFindingIds}
                 onSelectionChange={setSelectedFindingIds}
               />
 

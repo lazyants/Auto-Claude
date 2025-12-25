@@ -111,19 +111,27 @@ export function PRList({ prs, selectedPRNumber, isLoading, error, activePRReview
                     )}
                     {!isReviewingPR && hasReviewResult && reviewState?.result && (
                       <>
-                        {reviewState.result.overallStatus === 'approve' && (
+                        {/* Show "Reviewed" if AI review is complete but not yet posted to GitHub */}
+                        {!reviewState.result.reviewId && (
+                          <Badge variant="outline" className="text-xs flex items-center gap-1 text-blue-500 border-blue-500/50">
+                            <CheckCircle2 className="h-3 w-3" />
+                            {t('prReview.reviewed')}
+                          </Badge>
+                        )}
+                        {/* Show actual status only after posted to GitHub (has reviewId) */}
+                        {reviewState.result.reviewId && reviewState.result.overallStatus === 'approve' && (
                           <Badge variant="outline" className="text-xs flex items-center gap-1 text-success border-success/50">
                             <CheckCircle2 className="h-3 w-3" />
                             {t('prReview.approved')}
                           </Badge>
                         )}
-                        {reviewState.result.overallStatus === 'request_changes' && (
+                        {reviewState.result.reviewId && reviewState.result.overallStatus === 'request_changes' && (
                           <Badge variant="outline" className="text-xs flex items-center gap-1 text-destructive border-destructive/50">
                             <AlertCircle className="h-3 w-3" />
                             {t('prReview.changesRequested')}
                           </Badge>
                         )}
-                        {reviewState.result.overallStatus === 'comment' && (
+                        {reviewState.result.reviewId && reviewState.result.overallStatus === 'comment' && (
                           <Badge variant="outline" className="text-xs flex items-center gap-1 text-blue-500 border-blue-500/50">
                             <MessageSquare className="h-3 w-3" />
                             {t('prReview.commented')}

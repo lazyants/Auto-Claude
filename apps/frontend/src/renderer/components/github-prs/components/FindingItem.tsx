@@ -2,6 +2,7 @@
  * FindingItem - Individual finding display with checkbox and details
  */
 
+import { CheckCircle } from 'lucide-react';
 import { Badge } from '../../ui/badge';
 import { Checkbox } from '../../ui/checkbox';
 import { cn } from '../../../lib/utils';
@@ -11,33 +12,44 @@ import type { PRReviewFinding } from '../hooks/useGitHubPRs';
 interface FindingItemProps {
   finding: PRReviewFinding;
   selected: boolean;
+  posted?: boolean;
   onToggle: () => void;
 }
 
-export function FindingItem({ finding, selected, onToggle }: FindingItemProps) {
+export function FindingItem({ finding, selected, posted = false, onToggle }: FindingItemProps) {
   const CategoryIcon = getCategoryIcon(finding.category);
 
   return (
     <div
       className={cn(
         "rounded-lg border bg-background p-3 space-y-2 transition-colors",
-        selected && "ring-2 ring-primary/50"
+        selected && !posted && "ring-2 ring-primary/50",
+        posted && "opacity-60"
       )}
     >
       {/* Finding Header */}
       <div className="flex items-start gap-3">
-        <Checkbox
-          id={finding.id}
-          checked={selected}
-          onCheckedChange={onToggle}
-          className="mt-0.5"
-        />
+        {posted ? (
+          <CheckCircle className="h-4 w-4 mt-0.5 text-success shrink-0" />
+        ) : (
+          <Checkbox
+            id={finding.id}
+            checked={selected}
+            onCheckedChange={onToggle}
+            className="mt-0.5"
+          />
+        )}
         <div className="flex-1 min-w-0 space-y-1">
           <div className="flex items-center gap-2 flex-wrap">
             <Badge variant="outline" className="text-xs shrink-0">
               <CategoryIcon className="h-3 w-3 mr-1" />
               {finding.category}
             </Badge>
+            {posted && (
+              <Badge variant="outline" className="text-xs shrink-0 text-success border-success/50">
+                Posted
+              </Badge>
+            )}
             <span className="font-medium text-sm break-words">
               {finding.title}
             </span>

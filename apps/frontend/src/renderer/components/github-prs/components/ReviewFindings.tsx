@@ -29,12 +29,14 @@ import { SEVERITY_ORDER, SEVERITY_CONFIG } from '../constants/severity-config';
 interface ReviewFindingsProps {
   findings: PRReviewFinding[];
   selectedIds: Set<string>;
+  postedIds?: Set<string>;
   onSelectionChange: (selectedIds: Set<string>) => void;
 }
 
 export function ReviewFindings({
   findings,
   selectedIds,
+  postedIds = new Set(),
   onSelectionChange,
 }: ReviewFindingsProps) {
   // Track which sections are expanded
@@ -180,6 +182,7 @@ export function ReviewFindings({
                       key={finding.id}
                       finding={finding}
                       selected={selectedIds.has(finding.id)}
+                      posted={postedIds.has(finding.id)}
                       onToggle={() => toggleFinding(finding.id)}
                     />
                   ))}

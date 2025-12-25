@@ -596,17 +596,43 @@ export function registerPRHandlers(
           debugLog('Posting review to GitHub', { prNumber, status: overallStatus, event, findingsCount: findings.length });
 
           // Post review via GitHub API to capture review ID
-          const reviewResponse = await githubFetch(
-            config.token,
-            `/repos/${config.repo}/pulls/${prNumber}/reviews`,
-            {
-              method: 'POST',
-              body: JSON.stringify({
-                body,
-                event,
-              }),
+          let reviewResponse: { id: number };
+          let actualEvent = event;
+          try {
+            reviewResponse = await githubFetch(
+              config.token,
+              `/repos/${config.repo}/pulls/${prNumber}/reviews`,
+              {
+                method: 'POST',
+                body: JSON.stringify({
+                  body,
+                  event,
+                }),
+              }
+            ) as { id: number };
+          } catch (error) {
+            // GitHub doesn't allow REQUEST_CHANGES or APPROVE on your own PR
+            // Fall back to COMMENT if that's the error
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            if (errorMsg.includes('Can not request changes on your own pull request') ||
+                errorMsg.includes('Can not approve your own pull request')) {
+              debugLog('Cannot use REQUEST_CHANGES/APPROVE on own PR, falling back to COMMENT', { prNumber });
+              actualEvent = 'COMMENT';
+              reviewResponse = await githubFetch(
+                config.token,
+                `/repos/${config.repo}/pulls/${prNumber}/reviews`,
+                {
+                  method: 'POST',
+                  body: JSON.stringify({
+                    body,
+                    event: 'COMMENT',
+                  }),
+                }
+              ) as { id: number };
+            } else {
+              throw error;
             }
-          ) as { id: number };
+          }
 
           const reviewId = reviewResponse.id;
           debugLog('Review posted successfully', { prNumber, reviewId });
