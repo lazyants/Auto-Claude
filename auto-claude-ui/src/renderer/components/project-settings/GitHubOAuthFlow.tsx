@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Github,
+  Gitlab,
   Loader2,
   CheckCircle2,
   AlertCircle,
@@ -15,6 +16,7 @@ import { Button } from '../ui/button';
 import { Card, CardContent } from '../ui/card';
 
 interface GitHubOAuthFlowProps {
+  projectPath?: string;
   onSuccess: (token: string, username?: string) => void;
   onCancel?: () => void;
 }
@@ -37,15 +39,16 @@ function debugLog(message: string, data?: unknown) {
 const AUTH_TIMEOUT_MS = 5 * 60 * 1000;
 
 /**
- * GitHub OAuth flow component using gh CLI
- * Guides users through authenticating with GitHub using the gh CLI
+ * Platform OAuth flow component using gh/glab CLI
+ * Guides users through authenticating with GitHub or GitLab using the appropriate CLI
  */
-export function GitHubOAuthFlow({ onSuccess, onCancel }: GitHubOAuthFlowProps) {
+export function GitHubOAuthFlow({ projectPath, onSuccess, onCancel }: GitHubOAuthFlowProps) {
   const [status, setStatus] = useState<'checking' | 'need-install' | 'need-auth' | 'authenticating' | 'success' | 'error'>('checking');
   const [error, setError] = useState<string | null>(null);
   const [_cliInstalled, setCliInstalled] = useState(false);
   const [cliVersion, setCliVersion] = useState<string | undefined>();
   const [username, setUsername] = useState<string | undefined>();
+  const [platform, setPlatform] = useState<string>('GitHub'); // Default to GitHub for backward compatibility
 
   // Device flow state for displaying code and auth URL
   const [deviceCode, setDeviceCode] = useState<string | null>(null);
@@ -112,25 +115,31 @@ export function GitHubOAuthFlow({ onSuccess, onCancel }: GitHubOAuthFlowProps) {
   }, [clearAuthTimeout]);
 
   const checkGitHubStatus = async () => {
-    debugLog('checkGitHubStatus() called');
+    debugLog('checkGitHubStatus() called with projectPath:', projectPath);
     setStatus('checking');
     setError(null);
 
     try {
-      // Check if gh CLI is installed
+      // Check if platform CLI is installed (gh or glab based on project)
       debugLog('Calling checkGitHubCli...');
-      const cliResult = await window.electronAPI.checkGitHubCli();
+      const cliResult = await window.electronAPI.checkGitHubCli(projectPath);
       debugLog('checkGitHubCli result:', cliResult);
 
       if (!cliResult.success) {
         debugLog('checkGitHubCli failed:', cliResult.error);
-        setError(cliResult.error || 'Failed to check GitHub CLI');
+        setError(cliResult.error || 'Failed to check platform CLI');
         setStatus('error');
         return;
       }
 
+      // Update platform name from response
+      if (cliResult.data?.platform) {
+        setPlatform(cliResult.data.platform);
+        debugLog('Platform detected:', cliResult.data.platform);
+      }
+
       if (!cliResult.data?.installed) {
-        debugLog('GitHub CLI not installed');
+        debugLog(`${platform} CLI not installed`);
         setStatus('need-install');
         setCliInstalled(false);
         return;
@@ -138,12 +147,17 @@ export function GitHubOAuthFlow({ onSuccess, onCancel }: GitHubOAuthFlowProps) {
 
       setCliInstalled(true);
       setCliVersion(cliResult.data.version);
-      debugLog('GitHub CLI installed, version:', cliResult.data.version);
+      debugLog(`${platform} CLI installed, version:`, cliResult.data.version);
 
       // Check if already authenticated
       debugLog('Calling checkGitHubAuth...');
-      const authResult = await window.electronAPI.checkGitHubAuth();
+      const authResult = await window.electronAPI.checkGitHubAuth(projectPath);
       debugLog('checkGitHubAuth result:', authResult);
+
+      // Update platform from auth result if available
+      if (authResult.data?.platform) {
+        setPlatform(authResult.data.platform);
+      }
 
       if (authResult.success && authResult.data?.authenticated) {
         debugLog('Already authenticated as:', authResult.data.username);
@@ -165,7 +179,7 @@ export function GitHubOAuthFlow({ onSuccess, onCancel }: GitHubOAuthFlowProps) {
     debugLog('fetchAndNotifyToken() called');
     try {
       debugLog('Calling getGitHubToken...');
-      const tokenResult = await window.electronAPI.getGitHubToken();
+      const tokenResult = await window.electronAPI.getGitHubToken(projectPath);
       debugLog('getGitHubToken result:', {
         success: tokenResult.success,
         hasToken: !!tokenResult.data?.token,
@@ -209,7 +223,7 @@ export function GitHubOAuthFlow({ onSuccess, onCancel }: GitHubOAuthFlowProps) {
 
     try {
       debugLog('Calling startGitHubAuth...');
-      const result = await window.electronAPI.startGitHubAuth();
+      const result = await window.electronAPI.startGitHubAuth(projectPath);
       debugLog('startGitHubAuth result:', result);
 
       // Clear timeout since we got a response
@@ -254,9 +268,18 @@ export function GitHubOAuthFlow({ onSuccess, onCancel }: GitHubOAuthFlowProps) {
   };
 
   const handleOpenGhInstall = () => {
-    debugLog('Opening gh CLI install page');
-    window.open('https://cli.github.com/', '_blank');
+    const installUrl = platform === 'GitLab'
+      ? 'https://gitlab.com/gitlab-org/cli#installation'
+      : 'https://cli.github.com/';
+    debugLog(`Opening ${platform} CLI install page:`, installUrl);
+    window.open(installUrl, '_blank');
   };
+
+  // Get the appropriate platform icon
+  const PlatformIcon = platform === 'GitLab' ? Gitlab : Github;
+
+  // Get CLI name for display
+  const cliName = platform === 'GitLab' ? 'glab' : 'gh';
 
   const handleRetry = () => {
     debugLog('Retry clicked');
@@ -298,7 +321,7 @@ export function GitHubOAuthFlow({ onSuccess, onCancel }: GitHubOAuthFlowProps) {
         </div>
       )}
 
-      {/* Need to install gh CLI */}
+      {/* Need to install platform CLI */}
       {status === 'need-install' && (
         <div className="space-y-4">
           <Card className="border border-warning/30 bg-warning/10">
@@ -307,16 +330,16 @@ export function GitHubOAuthFlow({ onSuccess, onCancel }: GitHubOAuthFlowProps) {
                 <Terminal className="h-6 w-6 text-warning shrink-0 mt-0.5" />
                 <div className="flex-1 space-y-3">
                   <h3 className="text-lg font-medium text-foreground">
-                    GitHub CLI Required
+                    {platform} CLI Required
                   </h3>
                   <p className="text-sm text-muted-foreground">
-                    The GitHub CLI (gh) is required for OAuth authentication. This provides a secure
+                    The {platform} CLI ({cliName}) is required for OAuth authentication. This provides a secure
                     way to authenticate without manually creating tokens.
                   </p>
                   <div className="flex gap-3">
                     <Button onClick={handleOpenGhInstall} className="gap-2">
                       <ExternalLink className="h-4 w-4" />
-                      Install GitHub CLI
+                      Install {platform} CLI
                     </Button>
                     <Button variant="outline" onClick={handleRetry}>
                       I've Installed It
@@ -334,9 +357,19 @@ export function GitHubOAuthFlow({ onSuccess, onCancel }: GitHubOAuthFlowProps) {
                 <div className="flex-1 text-sm text-muted-foreground">
                   <p className="font-medium text-foreground mb-2">Installation instructions:</p>
                   <ul className="space-y-1 list-disc list-inside">
-                    <li>macOS: <code className="px-1.5 py-0.5 bg-muted rounded font-mono text-xs">brew install gh</code></li>
-                    <li>Windows: <code className="px-1.5 py-0.5 bg-muted rounded font-mono text-xs">winget install GitHub.cli</code></li>
-                    <li>Linux: Visit <a href="https://cli.github.com/" target="_blank" rel="noopener noreferrer" className="text-info hover:underline">cli.github.com</a></li>
+                    {platform === 'GitLab' ? (
+                      <>
+                        <li>macOS: <code className="px-1.5 py-0.5 bg-muted rounded font-mono text-xs">brew install glab</code></li>
+                        <li>Windows: <code className="px-1.5 py-0.5 bg-muted rounded font-mono text-xs">winget install glab.glab</code></li>
+                        <li>Linux: Visit <a href="https://gitlab.com/gitlab-org/cli#installation" target="_blank" rel="noopener noreferrer" className="text-info hover:underline">GitLab CLI docs</a></li>
+                      </>
+                    ) : (
+                      <>
+                        <li>macOS: <code className="px-1.5 py-0.5 bg-muted rounded font-mono text-xs">brew install gh</code></li>
+                        <li>Windows: <code className="px-1.5 py-0.5 bg-muted rounded font-mono text-xs">winget install GitHub.cli</code></li>
+                        <li>Linux: Visit <a href="https://cli.github.com/" target="_blank" rel="noopener noreferrer" className="text-info hover:underline">cli.github.com</a></li>
+                      </>
+                    )}
                   </ul>
                 </div>
               </div>
@@ -351,18 +384,18 @@ export function GitHubOAuthFlow({ onSuccess, onCancel }: GitHubOAuthFlowProps) {
           <Card className="border border-info/30 bg-info/10">
             <CardContent className="p-5">
               <div className="flex items-start gap-4">
-                <Github className="h-6 w-6 text-info shrink-0 mt-0.5" />
+                <PlatformIcon className="h-6 w-6 text-info shrink-0 mt-0.5" />
                 <div className="flex-1 space-y-3">
                   <h3 className="text-lg font-medium text-foreground">
-                    Connect to GitHub
+                    Connect to {platform}
                   </h3>
                   <p className="text-sm text-muted-foreground">
-                    Click the button below to authenticate with GitHub. This will open your browser
+                    Click the button below to authenticate with {platform}. This will open your browser
                     where you can authorize the application.
                   </p>
                   {cliVersion && (
                     <p className="text-xs text-muted-foreground">
-                      Using GitHub CLI {cliVersion}
+                      Using {platform} CLI {cliVersion}
                     </p>
                   )}
                 </div>
@@ -372,8 +405,8 @@ export function GitHubOAuthFlow({ onSuccess, onCancel }: GitHubOAuthFlowProps) {
 
           <div className="flex justify-center">
             <Button onClick={handleStartAuth} size="lg" className="gap-2">
-              <Github className="h-5 w-5" />
-              Authenticate with GitHub
+              <PlatformIcon className="h-5 w-5" />
+              Authenticate with {platform}
             </Button>
           </div>
         </div>
@@ -469,7 +502,7 @@ export function GitHubOAuthFlow({ onSuccess, onCancel }: GitHubOAuthFlowProps) {
                   Successfully Connected
                 </h3>
                 <p className="text-sm text-success/80 mt-1">
-                  {username ? `Connected as ${username}` : 'Your GitHub account is now connected'}
+                  {username ? `Connected as ${username}` : `Your ${platform} account is now connected`}
                 </p>
               </div>
             </div>
