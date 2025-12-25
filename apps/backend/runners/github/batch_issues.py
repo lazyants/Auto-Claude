@@ -326,11 +326,12 @@ class IssueBatch:
         batches_dir = github_dir / "batches"
         batches_dir.mkdir(parents=True, exist_ok=True)
 
+        # Update timestamp BEFORE serializing to dict
+        self.updated_at = datetime.now(timezone.utc).isoformat()
+
         batch_file = batches_dir / f"batch_{self.batch_id}.json"
         with open(batch_file, "w") as f:
             json.dump(self.to_dict(), f, indent=2)
-
-        self.updated_at = datetime.now(timezone.utc).isoformat()
 
     @classmethod
     def load(cls, github_dir: Path, batch_id: str) -> IssueBatch | None:

@@ -404,10 +404,13 @@ class PRContextGatherer:
         Returns:
             AIBotComment if author is a known AI bot, None otherwise
         """
-        author = comment.get("author", {}).get("login", "").lower()
+        # Handle null author (deleted/suspended users return null from GitHub API)
+        author_data = comment.get("author")
+        author = (author_data.get("login", "") if author_data else "").lower()
         if not author:
             # Fallback for different API response formats
-            author = comment.get("user", {}).get("login", "").lower()
+            user_data = comment.get("user")
+            author = (user_data.get("login", "") if user_data else "").lower()
 
         # Check if author matches any known AI bot pattern
         tool_name = None
