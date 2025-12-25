@@ -1,5 +1,8 @@
 /**
- * GitHub release creation IPC handlers
+ * Platform Release Creation IPC Handlers
+ * =======================================
+ *
+ * Platform-agnostic release handlers that work with both GitHub and GitLab.
  */
 
 import { ipcMain } from 'electron';
@@ -11,57 +14,11 @@ import type { IPCResult, GitCommit, VersionSuggestion } from '../../../shared/ty
 import { projectStore } from '../../project-store';
 import { changelogService } from '../../changelog-service';
 import type { ReleaseOptions } from './types';
+import { PlatformAdapterFactory } from '../../platform-adapters/factory';
+import { detectGitPlatform, getPlatformDisplayName, getPlatformCliName } from '../../git-platform-detector';
 
 /**
- * Check if gh CLI is installed
- */
-function checkGhCli(): { installed: boolean; error?: string } {
-  try {
-    const checkCmd = process.platform === 'win32' ? 'where gh' : 'which gh';
-    execSync(checkCmd, { encoding: 'utf-8', stdio: 'pipe' });
-    return { installed: true };
-  } catch {
-    return {
-      installed: false,
-      error: 'GitHub CLI (gh) not found. Please install it: https://cli.github.com/'
-    };
-  }
-}
-
-/**
- * Check if user is authenticated with gh CLI
- */
-function checkGhAuth(projectPath: string): { authenticated: boolean; error?: string } {
-  try {
-    execSync('gh auth status', { cwd: projectPath, encoding: 'utf-8', stdio: 'pipe' });
-    return { authenticated: true };
-  } catch {
-    return {
-      authenticated: false,
-      error: 'Not authenticated with GitHub. Run "gh auth login" in terminal first.'
-    };
-  }
-}
-
-/**
- * Build gh release command arguments
- */
-function buildReleaseArgs(version: string, releaseNotes: string, options?: ReleaseOptions): string[] {
-  const tag = version.startsWith('v') ? version : `v${version}`;
-  const args = ['release', 'create', tag, '--title', tag, '--notes', releaseNotes];
-
-  if (options?.draft) {
-    args.push('--draft');
-  }
-  if (options?.prerelease) {
-    args.push('--prerelease');
-  }
-
-  return args;
-}
-
-/**
- * Create a GitHub release using gh CLI
+ * Create a release using platform CLI (GitHub or GitLab)
  */
 export function registerCreateRelease(): void {
   ipcMain.handle(
@@ -78,43 +35,65 @@ export function registerCreateRelease(): void {
         return { success: false, error: 'Project not found' };
       }
 
-      // Check if gh CLI is available
-      const cliCheck = checkGhCli();
-      if (!cliCheck.installed) {
-        return { success: false, error: cliCheck.error };
-      }
-
-      // Check if user is authenticated
-      const authCheck = checkGhAuth(project.path);
-      if (!authCheck.authenticated) {
-        return { success: false, error: authCheck.error };
-      }
-
       try {
-        // Build and execute release command
-        const args = buildReleaseArgs(version, releaseNotes, options);
-        const command = `gh ${args.map(a => `"${a.replace(/"/g, '\\"')}"`).join(' ')}`;
+        // Detect platform
+        const platform = detectGitPlatform(project.path);
+        if (!platform) {
+          return {
+            success: false,
+            error: 'Could not detect platform. Make sure the project has a git remote configured.'
+          };
+        }
 
-        const output = execSync(command, {
-          cwd: project.path,
-          encoding: 'utf-8',
-          stdio: 'pipe'
-        }).trim();
+        const platformName = getPlatformDisplayName(platform);
+        const cliName = getPlatformCliName(platform);
 
-        // Output is typically the release URL
+        // Get platform adapter
+        const adapter = PlatformAdapterFactory.createAdapter(platform);
+
+        // Check if CLI is installed
+        const cliCheck = await adapter.checkCliInstalled();
+        if (!cliCheck.installed) {
+          return {
+            success: false,
+            error: `${platformName} CLI (${cliName}) not found. Please install it first.`
+          };
+        }
+
+        // Check if user is authenticated
+        const authCheck = await adapter.checkAuthentication();
+        if (!authCheck.authenticated) {
+          return {
+            success: false,
+            error: `Not authenticated with ${platformName}. Run "${cliName} auth login" in terminal first.`
+          };
+        }
+
+        // Create release
         const tag = version.startsWith('v') ? version : `v${version}`;
-        const releaseUrl = output || `https://github.com/releases/tag/${tag}`;
+        const releaseResult = await adapter.createRelease({
+          projectPath: project.path,
+          version,
+          tagName: tag,
+          title: tag,
+          body: releaseNotes,
+          draft: options?.draft,
+          prerelease: options?.prerelease
+        });
+
+        if (!releaseResult.success) {
+          return {
+            success: false,
+            error: releaseResult.error || 'Failed to create release'
+          };
+        }
 
         return {
           success: true,
-          data: { url: releaseUrl }
+          data: { url: releaseResult.releaseUrl || '' }
         };
       } catch (error) {
-        // Extract error message from stderr if available
         const errorMsg = error instanceof Error ? error.message : 'Failed to create release';
-        if (error && typeof error === 'object' && 'stderr' in error) {
-          return { success: false, error: String(error.stderr) || errorMsg };
-        }
         return { success: false, error: errorMsg };
       }
     }
