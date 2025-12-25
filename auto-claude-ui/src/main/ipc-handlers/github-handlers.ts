@@ -1,23 +1,24 @@
 /**
- * GitHub integration IPC handlers
+ * Platform integration IPC handlers (GitHub and GitLab)
  *
- * This file serves as the main entry point for GitHub-related handlers.
- * All handler implementations have been modularized into the github/ subdirectory.
+ * This file serves as the main entry point for platform-related handlers.
+ * All handler implementations have been modularized into the platform/ subdirectory.
  *
  * Module organization:
- * - github/repository-handlers.ts - Repository and connection management
- * - github/issue-handlers.ts - Issue fetching and retrieval
- * - github/investigation-handlers.ts - AI-powered issue investigation
- * - github/import-handlers.ts - Bulk issue import
- * - github/release-handlers.ts - GitHub release creation
- * - github/utils.ts - Shared utility functions
- * - github/spec-utils.ts - Spec creation utilities
- * - github/types.ts - TypeScript type definitions
+ * - platform/repository-handlers.ts - Repository and connection management
+ * - platform/issue-handlers.ts - Issue fetching and retrieval
+ * - platform/investigation-handlers.ts - AI-powered issue investigation
+ * - platform/import-handlers.ts - Bulk issue import
+ * - platform/release-handlers.ts - Platform release creation
+ * - platform/oauth-handlers.ts - Platform OAuth authentication
+ * - platform/utils.ts - Shared utility functions
+ * - platform/spec-utils.ts - Spec creation utilities
+ * - platform/types.ts - TypeScript type definitions
  */
 
 import type { BrowserWindow } from 'electron';
 import { AgentManager } from '../agent';
-import { registerGithubHandlers as registerModularHandlers } from './github';
+import { registerGithubHandlers as registerModularHandlers } from './platform';
 
 /**
  * Register all GitHub-related IPC handlers
