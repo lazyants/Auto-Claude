@@ -59,6 +59,48 @@ except (ImportError, ValueError, SystemError):
 logger = logging.getLogger(__name__)
 
 
+# Map AI-generated category names to valid ReviewCategory enum values
+# The AI sometimes generates categories that aren't in our enum
+_CATEGORY_MAPPING = {
+    # Direct matches (already valid)
+    "security": ReviewCategory.SECURITY,
+    "quality": ReviewCategory.QUALITY,
+    "style": ReviewCategory.STYLE,
+    "test": ReviewCategory.TEST,
+    "docs": ReviewCategory.DOCS,
+    "pattern": ReviewCategory.PATTERN,
+    "performance": ReviewCategory.PERFORMANCE,
+    "verification_failed": ReviewCategory.VERIFICATION_FAILED,
+    "redundancy": ReviewCategory.REDUNDANCY,
+    # AI-generated alternatives that need mapping
+    "correctness": ReviewCategory.QUALITY,  # Logic/code correctness → quality
+    "consistency": ReviewCategory.PATTERN,  # Code consistency → pattern adherence
+    "testing": ReviewCategory.TEST,  # Testing → test
+    "documentation": ReviewCategory.DOCS,  # Documentation → docs
+    "bug": ReviewCategory.QUALITY,  # Bug → quality
+    "logic": ReviewCategory.QUALITY,  # Logic error → quality
+    "error_handling": ReviewCategory.QUALITY,  # Error handling → quality
+    "maintainability": ReviewCategory.QUALITY,  # Maintainability → quality
+    "readability": ReviewCategory.STYLE,  # Readability → style
+    "best_practices": ReviewCategory.PATTERN,  # Best practices → pattern
+    "best-practices": ReviewCategory.PATTERN,  # With hyphen
+    "architecture": ReviewCategory.PATTERN,  # Architecture → pattern
+    "complexity": ReviewCategory.QUALITY,  # Complexity → quality
+    "dead_code": ReviewCategory.REDUNDANCY,  # Dead code → redundancy
+    "unused": ReviewCategory.REDUNDANCY,  # Unused → redundancy
+}
+
+
+def _map_category(category_str: str) -> ReviewCategory:
+    """
+    Map an AI-generated category string to a valid ReviewCategory enum.
+
+    Falls back to QUALITY if the category is unknown.
+    """
+    normalized = category_str.lower().strip().replace("-", "_")
+    return _CATEGORY_MAPPING.get(normalized, ReviewCategory.QUALITY)
+
+
 class OrchestratorReviewer:
     """
     Strategic PR reviewer using Opus 4.5 for orchestration.
@@ -505,6 +547,35 @@ Now perform your strategic review and use the available tools to spawn subagents
         )
 
         try:
+            # Strip markdown code blocks if present
+            # AI often wraps JSON in ```json ... ```
+            import re
+
+            # Find JSON in code blocks first
+            code_block_pattern = r"```(?:json)?\s*(\{[\s\S]*?\})\s*```"
+            code_block_match = re.search(code_block_pattern, output)
+            if code_block_match:
+                # Extract JSON from inside code block
+                json_candidate = code_block_match.group(1)
+                logger.debug(
+                    f"[Orchestrator] Found JSON in code block (length: {len(json_candidate)})"
+                )
+                try:
+                    response_data = json.loads(json_candidate)
+                    findings_data = response_data.get("findings", [])
+                    logger.info(
+                        f"[Orchestrator] Parsed {len(findings_data)} findings from code block"
+                    )
+                    print(
+                        f"[Orchestrator] Parsed JSON from code block - Verdict: {response_data.get('verdict', 'unknown')}",
+                        flush=True,
+                    )
+                    return self._extract_findings_from_data(findings_data)
+                except json.JSONDecodeError:
+                    logger.debug(
+                        "[Orchestrator] Code block JSON parse failed, trying raw extraction"
+                    )
+
             # Look for JSON object in output (orchestrator outputs full object, not just array)
             start = output.find("{")
 
@@ -561,18 +632,25 @@ Now perform your strategic review and use the available tools to spawn subagents
                             f"{data.get('file', 'unknown')}:{data.get('line', 0)}:{data.get('title', 'Untitled')}".encode()
                         ).hexdigest()[:12]
 
+                        # Map category using flexible mapping (handles AI-generated values)
+                        category = _map_category(data.get("category", "quality"))
+
+                        # Map severity with fallback
+                        try:
+                            severity = ReviewSeverity(
+                                data.get("severity", "medium").lower()
+                            )
+                        except ValueError:
+                            severity = ReviewSeverity.MEDIUM
+
                         finding = PRReviewFinding(
                             id=finding_id,
                             file=data.get("file", "unknown"),
                             line=data.get("line", 0),
                             title=data.get("title", "Untitled"),
                             description=data.get("description", ""),
-                            category=ReviewCategory(
-                                data.get("category", "quality").lower()
-                            ),
-                            severity=ReviewSeverity(
-                                data.get("severity", "medium").lower()
-                            ),
+                            category=category,
+                            severity=severity,
                             suggested_fix=data.get(
                                 "suggestion", data.get("suggested_fix", "")
                             ),
@@ -620,18 +698,25 @@ Now perform your strategic review and use the available tools to spawn subagents
                             f"{data.get('file', 'unknown')}:{data.get('line', 0)}:{data.get('title', 'Untitled')}".encode()
                         ).hexdigest()[:12]
 
+                        # Map category using flexible mapping (handles AI-generated values)
+                        category = _map_category(data.get("category", "quality"))
+
+                        # Map severity with fallback
+                        try:
+                            severity = ReviewSeverity(
+                                data.get("severity", "medium").lower()
+                            )
+                        except ValueError:
+                            severity = ReviewSeverity.MEDIUM
+
                         finding = PRReviewFinding(
                             id=finding_id,
                             file=data.get("file", "unknown"),
                             line=data.get("line", 0),
                             title=data.get("title", "Untitled"),
                             description=data.get("description", ""),
-                            category=ReviewCategory(
-                                data.get("category", "quality").lower()
-                            ),
-                            severity=ReviewSeverity(
-                                data.get("severity", "medium").lower()
-                            ),
+                            category=category,
+                            severity=severity,
                             suggested_fix=data.get(
                                 "suggestion", data.get("suggested_fix", "")
                             ),
@@ -651,6 +736,56 @@ Now perform your strategic review and use the available tools to spawn subagents
             logger.error(f"[Orchestrator] Failed to parse output: {e}", exc_info=True)
 
         logger.info(f"[Orchestrator] Parsed {len(findings)} total findings from output")
+        return findings
+
+    def _extract_findings_from_data(
+        self, findings_data: list[dict]
+    ) -> list[PRReviewFinding]:
+        """
+        Extract PRReviewFinding objects from parsed JSON findings data.
+
+        Args:
+            findings_data: List of finding dictionaries from JSON
+
+        Returns:
+            List of PRReviewFinding objects
+        """
+        import hashlib
+
+        findings = []
+        for data in findings_data:
+            # Generate unique ID for this finding
+            finding_id = hashlib.md5(
+                f"{data.get('file', 'unknown')}:{data.get('line', 0)}:{data.get('title', 'Untitled')}".encode()
+            ).hexdigest()[:12]
+
+            # Map category using flexible mapping (handles AI-generated values)
+            category = _map_category(data.get("category", "quality"))
+
+            # Map severity with fallback
+            try:
+                severity = ReviewSeverity(data.get("severity", "medium").lower())
+            except ValueError:
+                severity = ReviewSeverity.MEDIUM
+
+            finding = PRReviewFinding(
+                id=finding_id,
+                file=data.get("file", "unknown"),
+                line=data.get("line", 0),
+                title=data.get("title", "Untitled"),
+                description=data.get("description", ""),
+                category=category,
+                severity=severity,
+                suggested_fix=data.get("suggestion", data.get("suggested_fix", "")),
+                confidence=data.get("confidence", 85) / 100.0
+                if data.get("confidence", 85) > 1
+                else data.get("confidence", 0.85),
+            )
+            findings.append(finding)
+            logger.debug(
+                f"[Orchestrator] Added finding: {finding.title} ({finding.severity.value})"
+            )
+
         return findings
 
     def _deduplicate_findings(

@@ -28,6 +28,42 @@ except (ImportError, ValueError, SystemError):
 logger = logging.getLogger(__name__)
 
 
+# Map AI-generated category names to valid ReviewCategory enum values
+_CATEGORY_MAPPING = {
+    # Direct matches
+    "security": ReviewCategory.SECURITY,
+    "quality": ReviewCategory.QUALITY,
+    "style": ReviewCategory.STYLE,
+    "test": ReviewCategory.TEST,
+    "docs": ReviewCategory.DOCS,
+    "pattern": ReviewCategory.PATTERN,
+    "performance": ReviewCategory.PERFORMANCE,
+    "verification_failed": ReviewCategory.VERIFICATION_FAILED,
+    "redundancy": ReviewCategory.REDUNDANCY,
+    # AI-generated alternatives
+    "correctness": ReviewCategory.QUALITY,
+    "consistency": ReviewCategory.PATTERN,
+    "testing": ReviewCategory.TEST,
+    "documentation": ReviewCategory.DOCS,
+    "bug": ReviewCategory.QUALITY,
+    "logic": ReviewCategory.QUALITY,
+    "error_handling": ReviewCategory.QUALITY,
+    "maintainability": ReviewCategory.QUALITY,
+    "readability": ReviewCategory.STYLE,
+    "best_practices": ReviewCategory.PATTERN,
+    "architecture": ReviewCategory.PATTERN,
+    "complexity": ReviewCategory.QUALITY,
+    "dead_code": ReviewCategory.REDUNDANCY,
+    "unused": ReviewCategory.REDUNDANCY,
+}
+
+
+def _map_category(category_str: str) -> ReviewCategory:
+    """Map an AI-generated category string to a valid ReviewCategory enum."""
+    normalized = category_str.lower().strip().replace("-", "_")
+    return _CATEGORY_MAPPING.get(normalized, ReviewCategory.QUALITY)
+
+
 @dataclass
 class TestResult:
     """Result from test execution."""
@@ -541,13 +577,22 @@ def _parse_findings_from_response(
             findings_data = json.loads(json_str)
 
             for data in findings_data:
+                # Map category using flexible mapping
+                category = _map_category(data.get("category", "quality"))
+
+                # Map severity with fallback
+                try:
+                    severity = ReviewSeverity(data.get("severity", "medium").lower())
+                except ValueError:
+                    severity = ReviewSeverity.MEDIUM
+
                 finding = PRReviewFinding(
                     file=data.get("file", "unknown"),
                     line=data.get("line", 0),
                     title=data.get("title", "Untitled finding"),
                     description=data.get("description", ""),
-                    category=ReviewCategory(data.get("category", "quality").lower()),
-                    severity=ReviewSeverity(data.get("severity", "medium").lower()),
+                    category=category,
+                    severity=severity,
                     suggestion=data.get("suggestion", ""),
                     confidence=data.get("confidence", 80),
                     source=source,
