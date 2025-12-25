@@ -220,3 +220,62 @@ python auto-claude/run.py --spec 001
 - `auto-claude/` - Python backend/CLI (the framework code)
 - `auto-claude-ui/` - Optional Electron frontend
 - `.auto-claude/specs/` - Per-project data (specs, plans, QA reports) - gitignored
+
+## Platform Support (Electron UI)
+
+The optional Electron UI supports both GitHub and GitLab platforms with automatic detection:
+
+### Automatic Platform Detection
+
+- **GitHub Projects**: Automatically uses `gh` CLI (GitHub CLI)
+- **GitLab Projects**: Automatically uses `glab` CLI (GitLab CLI)
+- **Self-Hosted GitLab**: Fully supported (detects from git remote URL)
+- **Detection Method**: Parses git remote origin URL to determine platform
+
+No manual configuration needed - the platform is detected automatically per project.
+
+### Supported Platforms
+
+| Platform | CLI Tool | Installation |
+|----------|----------|--------------|
+| GitHub (github.com) | `gh` | `brew install gh` (macOS)<br>`winget install GitHub.cli` (Windows)<br>[cli.github.com](https://cli.github.com/) (Linux) |
+| GitLab (gitlab.com) | `glab` | `brew install glab` (macOS)<br>`winget install glab.glab` (Windows)<br>[GitLab CLI](https://gitlab.com/gitlab-org/cli#installation) (Linux) |
+| Self-Hosted GitLab | `glab` | Same as GitLab.com |
+
+### Features
+
+Both platforms support the same features through the Electron UI:
+
+- **OAuth Authentication**: Secure device flow authentication via CLI
+- **Repository Management**: Create repos, list branches, add remotes
+- **Release Creation**: Create releases with changelog notes
+- **Organization/Group Listing**: View user organizations (GitHub) or groups (GitLab)
+
+### Architecture
+
+Platform abstraction is implemented using the **Adapter Pattern**:
+
+```
+git-platform-detector.ts  → Detects platform from git remote URL
+platform-adapters/
+  ├── base-adapter.ts     → Common interface for all platforms
+  ├── github-adapter.ts   → GitHub CLI (gh) implementation
+  ├── gitlab-adapter.ts   → GitLab CLI (glab) implementation
+  └── factory.ts          → Creates appropriate adapter per project
+```
+
+**Key Files:**
+- `auto-claude-ui/src/main/git-platform-detector.ts` - Platform detection utility
+- `auto-claude-ui/src/main/platform-adapters/*` - Platform abstraction layer
+- `auto-claude-ui/src/main/ipc-handlers/platform/*` - IPC handlers for platform operations
+- `auto-claude-ui/src/renderer/components/project-settings/GitHubOAuthFlow.tsx` - Platform-aware OAuth UI
+
+### GitLab-Specific Handling
+
+GitLab has some unique characteristics compared to GitHub:
+
+- **Project IDs**: GitLab uses numeric project IDs for API calls (cached after first lookup)
+- **Release Notes**: `glab` requires release notes via temp file instead of inline argument
+- **Token Storage**: Tokens stored in `~/.config/glab-cli/config.yml` (YAML format)
+- **Self-Hosted**: Hostname passed to all `glab` commands for self-hosted instances
+- **Groups**: GitLab uses "groups" terminology instead of GitHub's "organizations"

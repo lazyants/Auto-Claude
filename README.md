@@ -114,7 +114,7 @@ Let AI help you create a project that shines. Rapidly understand your codebase a
 
 ### Changelog
 
-Write professional changelogs effortlessly. Generate release notes from completed Auto Claude tasks or integrate with GitHub to create masterclass changelogs automatically.
+Write professional changelogs effortlessly. Generate release notes from completed Auto Claude tasks or integrate with GitHub/GitLab to create masterclass changelogs automatically. Supports both GitHub (gh CLI) and GitLab (glab CLI) with automatic platform detection.
 
 ### Context
 
