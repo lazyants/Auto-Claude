@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 import path from 'path';
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'fs';
-import { execSync, spawn } from 'child_process';
+import { execSync } from 'child_process';
 import type {
   ReleaseableVersion,
   ReleasePreflightStatus,
@@ -14,10 +14,13 @@ import type {
   TaskStatus
 } from '../shared/types';
 import { DEFAULT_CHANGELOG_PATH } from '../shared/constants';
+import { PlatformAdapterFactory } from './platform-adapters/factory';
+import { detectGitPlatform, getPlatformDisplayName } from './git-platform-detector';
 
 /**
- * Service for creating GitHub releases with worktree-aware pre-flight checks.
+ * Service for creating releases (GitHub/GitLab) with worktree-aware pre-flight checks.
  *
+ * Platform support: Automatically detects GitHub or GitLab and uses the appropriate CLI (gh/glab).
  * Key feature: Worktree checks are SCOPED to tasks in the release version.
  * If a worktree exists for a task NOT in this release, it won't block the release.
  */
@@ -104,14 +107,14 @@ export class ReleaseService extends EventEmitter {
       const { specIds } = this.getTasksForVersion(projectPath, version.version, tasks);
       version.taskSpecIds = specIds;
 
-      // Check if already released on GitHub
+      // Check if already released
       try {
         const tagExists = this.checkTagExists(projectPath, version.tagName);
         version.isReleased = tagExists;
 
         if (tagExists) {
           // Try to get release URL
-          version.releaseUrl = this.getGitHubReleaseUrl(projectPath, version.tagName);
+          version.releaseUrl = await this.getReleaseUrl(projectPath, version.tagName);
         }
       } catch {
         // If we can't check, assume not released
@@ -158,16 +161,13 @@ export class ReleaseService extends EventEmitter {
   }
 
   /**
-   * Get GitHub release URL for a tag (if release exists).
+   * Get release URL for a tag (if release exists).
+   * Platform-agnostic: works with both GitHub and GitLab.
    */
-  private getGitHubReleaseUrl(projectPath: string, tagName: string): string | undefined {
+  private async getReleaseUrl(projectPath: string, tagName: string): Promise<string | undefined> {
     try {
-      const result = execSync(`gh release view ${tagName} --json url -q .url 2>/dev/null`, {
-        cwd: projectPath,
-        encoding: 'utf-8'
-      }).trim();
-
-      return result || undefined;
+      const adapter = await PlatformAdapterFactory.getAdapter(projectPath);
+      return await adapter.getReleaseUrl(projectPath, tagName);
     } catch {
       return undefined;
     }
@@ -273,23 +273,36 @@ export class ReleaseService extends EventEmitter {
       status.blockers.push(`Tag ${tagName} already exists - use a different version`);
     }
 
-    // Check 4: GitHub CLI is available and authenticated
+    // Check 4: Platform CLI is available and authenticated
     try {
-      execSync('gh auth status', {
-        cwd: projectPath,
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe']
-      });
+      const platform = detectGitPlatform(projectPath);
+      const platformName = platform ? getPlatformDisplayName(platform) : 'Git Platform';
+      const adapter = await PlatformAdapterFactory.getAdapter(projectPath);
+
+      const cliCheck = await adapter.checkCliInstalled();
+      if (!cliCheck.installed) {
+        throw new Error(`${platformName} CLI not installed`);
+      }
+
+      const authCheck = await adapter.checkAuthentication();
+      if (!authCheck.authenticated) {
+        throw new Error(`${platformName} CLI not authenticated`);
+      }
+
       status.checks.githubConnected = {
         passed: true,
-        message: 'GitHub CLI authenticated'
+        message: `${platformName} CLI authenticated`
       };
-    } catch {
+    } catch (error) {
+      const platform = detectGitPlatform(projectPath);
+      const platformName = platform ? getPlatformDisplayName(platform) : 'Git Platform';
+      const cliName = platform?.type === 'gitlab' ? 'glab' : 'gh';
+
       status.checks.githubConnected = {
         passed: false,
-        message: 'GitHub CLI not authenticated'
+        message: error instanceof Error ? error.message : `${platformName} CLI not authenticated`
       };
-      status.blockers.push('GitHub CLI not authenticated - run `gh auth login`');
+      status.blockers.push(`${platformName} CLI not authenticated - run \`${cliName} auth login\``);
     }
 
     // Check 5: Worktrees for tasks IN THIS VERSION are merged
@@ -672,69 +685,33 @@ export class ReleaseService extends EventEmitter {
         encoding: 'utf-8'
       });
 
-      // Stage 3: Create GitHub release
+      // Stage 3: Create release (platform-agnostic)
+      const platform = detectGitPlatform(projectPath);
+      const platformName = platform ? getPlatformDisplayName(platform) : 'platform';
+
       this.emitProgress(request.projectId, {
         stage: 'creating_release',
         progress: 80,
-        message: 'Creating GitHub release...'
+        message: `Creating ${platformName} release...`
       });
 
-      // Build gh release command
-      const args = [
-        'release', 'create', tagName,
-        '--title', title,
-        '--notes', request.body
-      ];
-
-      if (request.draft) {
-        args.push('--draft');
-      }
-      if (request.prerelease) {
-        args.push('--prerelease');
-      }
-
-      // Use spawn for better handling of the notes content
-      const result = await new Promise<string>((resolve, reject) => {
-        const child = spawn('gh', args, {
-          cwd: projectPath,
-          stdio: ['pipe', 'pipe', 'pipe']
-        });
-
-        let stdout = '';
-        let stderr = '';
-
-        child.stdout?.on('data', (data: Buffer) => {
-          stdout += data.toString();
-        });
-
-        child.stderr?.on('data', (data: Buffer) => {
-          stderr += data.toString();
-        });
-
-        child.on('exit', (code) => {
-          if (code === 0) {
-            resolve(stdout.trim());
-          } else {
-            reject(new Error(stderr || `gh exited with code ${code}`));
-          }
-        });
-
-        child.on('error', reject);
+      // Use platform adapter to create release
+      const adapter = await PlatformAdapterFactory.getAdapter(projectPath);
+      const releaseResult = await adapter.createRelease({
+        projectPath,
+        version: request.version,
+        tagName,
+        title,
+        body: request.body,
+        draft: request.draft,
+        prerelease: request.prerelease
       });
 
-      // Get the release URL
-      let releaseUrl = result;
-      if (!releaseUrl.startsWith('http')) {
-        // Try to fetch the URL
-        try {
-          releaseUrl = execSync(`gh release view ${tagName} --json url -q .url`, {
-            cwd: projectPath,
-            encoding: 'utf-8'
-          }).trim();
-        } catch {
-          releaseUrl = '';
-        }
+      if (!releaseResult.success) {
+        throw new Error(releaseResult.error || 'Failed to create release');
       }
+
+      const releaseUrl = releaseResult.releaseUrl || '';
 
       // Stage 4: Complete
       this.emitProgress(request.projectId, {
