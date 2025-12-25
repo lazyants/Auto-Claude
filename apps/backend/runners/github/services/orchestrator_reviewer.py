@@ -629,7 +629,8 @@ Now perform your strategic review and use the available tools to spawn subagents
                         import hashlib
 
                         finding_id = hashlib.md5(
-                            f"{data.get('file', 'unknown')}:{data.get('line', 0)}:{data.get('title', 'Untitled')}".encode()
+                            f"{data.get('file', 'unknown')}:{data.get('line', 0)}:{data.get('title', 'Untitled')}".encode(),
+                            usedforsecurity=False,
                         ).hexdigest()[:12]
 
                         # Map category using flexible mapping (handles AI-generated values)
@@ -695,7 +696,8 @@ Now perform your strategic review and use the available tools to spawn subagents
                         import hashlib
 
                         finding_id = hashlib.md5(
-                            f"{data.get('file', 'unknown')}:{data.get('line', 0)}:{data.get('title', 'Untitled')}".encode()
+                            f"{data.get('file', 'unknown')}:{data.get('line', 0)}:{data.get('title', 'Untitled')}".encode(),
+                            usedforsecurity=False,
                         ).hexdigest()[:12]
 
                         # Map category using flexible mapping (handles AI-generated values)
@@ -756,7 +758,8 @@ Now perform your strategic review and use the available tools to spawn subagents
         for data in findings_data:
             # Generate unique ID for this finding
             finding_id = hashlib.md5(
-                f"{data.get('file', 'unknown')}:{data.get('line', 0)}:{data.get('title', 'Untitled')}".encode()
+                f"{data.get('file', 'unknown')}:{data.get('line', 0)}:{data.get('title', 'Untitled')}".encode(),
+                usedforsecurity=False,
             ).hexdigest()[:12]
 
             # Map category using flexible mapping (handles AI-generated values)

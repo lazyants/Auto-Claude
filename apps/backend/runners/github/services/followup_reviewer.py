@@ -350,7 +350,8 @@ class FollowupReviewer:
                     findings.append(
                         PRReviewFinding(
                             id=hashlib.md5(
-                                f"new-{pattern}-{match.start()}".encode()
+                                f"new-{pattern}-{match.start()}".encode(),
+                                usedforsecurity=False,
                             ).hexdigest()[:12],
                             severity=ReviewSeverity.HIGH,
                             category=ReviewCategory.SECURITY,
@@ -415,7 +416,8 @@ class FollowupReviewer:
                 findings.append(
                     PRReviewFinding(
                         id=hashlib.md5(
-                            f"comment-{comment.get('id', '')}".encode()
+                            f"comment-{comment.get('id', '')}".encode(),
+                            usedforsecurity=False,
                         ).hexdigest()[:12],
                         severity=ReviewSeverity.MEDIUM,
                         category=ReviewCategory.QUALITY,
@@ -670,9 +672,9 @@ Please analyze this follow-up review context and provide your response in the JS
                         PRReviewFinding(
                             id=f.get(
                                 "id",
-                                hashlib.md5(f.get("title", "").encode()).hexdigest()[
-                                    :12
-                                ],
+                                hashlib.md5(
+                                    f.get("title", "").encode(), usedforsecurity=False
+                                ).hexdigest()[:12],
                             ),
                             severity=_SEVERITY_MAPPING.get(
                                 f.get("severity", "medium").lower(),
@@ -700,9 +702,9 @@ Please analyze this follow-up review context and provide your response in the JS
                         PRReviewFinding(
                             id=f.get(
                                 "id",
-                                hashlib.md5(f.get("title", "").encode()).hexdigest()[
-                                    :12
-                                ],
+                                hashlib.md5(
+                                    f.get("title", "").encode(), usedforsecurity=False
+                                ).hexdigest()[:12],
                             ),
                             severity=_SEVERITY_MAPPING.get(
                                 f.get("severity", "low").lower(), ReviewSeverity.LOW
