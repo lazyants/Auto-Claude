@@ -141,7 +141,7 @@ class OrchestratorReviewer:
                 project_dir=project_root,
                 spec_dir=self.github_dir,
                 model="claude-opus-4-5-20251101",  # Opus for strategic thinking
-                agent_type="qa_reviewer",
+                agent_type="pr_reviewer",  # Read-only - no bash, no edits
                 max_thinking_tokens=10000,  # High budget for strategy
             )
 

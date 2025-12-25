@@ -227,7 +227,7 @@ class PRReviewEngine:
             project_dir=project_root,
             spec_dir=self.github_dir,
             model=self.config.model,
-            agent_type="qa_reviewer",
+            agent_type="pr_reviewer",  # Read-only - no bash, no edits
         )
 
         result_text = ""
@@ -489,7 +489,7 @@ class PRReviewEngine:
             project_dir=project_root,
             spec_dir=self.github_dir,
             model=self.config.model,
-            agent_type="qa_reviewer",
+            agent_type="pr_reviewer",  # Read-only - no bash, no edits
         )
 
         result_text = ""
@@ -545,7 +545,7 @@ class PRReviewEngine:
             project_dir=project_root,
             spec_dir=self.github_dir,
             model=self.config.model,
-            agent_type="qa_reviewer",
+            agent_type="pr_reviewer",  # Read-only - no bash, no edits
         )
 
         result_text = ""

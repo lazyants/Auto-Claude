@@ -122,7 +122,7 @@ async def spawn_security_review(
             project_dir=project_root,
             spec_dir=github_dir,
             model=model,
-            agent_type="qa_reviewer",
+            agent_type="pr_reviewer",  # Read-only - no bash, no edits
         )
 
         # Run review session
@@ -206,7 +206,7 @@ async def spawn_quality_review(
             project_dir=project_root,
             spec_dir=github_dir,
             model=model,
-            agent_type="qa_reviewer",
+            agent_type="pr_reviewer",  # Read-only - no bash, no edits
         )
 
         result_text = ""
@@ -299,7 +299,7 @@ Output findings in JSON format:
             project_dir=project_root,
             spec_dir=github_dir,
             model=model,
-            agent_type="qa_reviewer",
+            agent_type="pr_reviewer",  # Read-only - no bash, no edits
         )
 
         result_text = ""
